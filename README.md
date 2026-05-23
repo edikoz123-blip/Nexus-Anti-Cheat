@@ -2,15 +2,15 @@ local jit = require("jit")
 jit.on()
 jit.opt.start(3)
 
--- טעינת ספריות ליבה ומניעת זיהוי על ידי סורקי האקרים
+-- Load core libraries and bypass potential scanning matrices
 local ffi = require("ffi") 
 local bit = require("bit") 
 
--- מנגנון אטומי: חילוץ הנתיב המלא של הסקריפט הנוכחי כדי לנעול את הטעינה מכל דיסק און קי [I1]
+-- Atomic routine: Extract script path to enforce localized execution
 local current_path = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or "./"
 package.path = package.path .. ";" .. current_path .. "?.lua;" .. current_path .. "lua/?.lua;./?.lua"
 
--- עכשיו ה-require ימצא את Agents.lua ב-0% מאמץ ובכל מחשב! [I1]
+-- Secure module resolution for independent environment agents [I1]
 local Agents = require("Agents") 
 
 local rawset = rawset
@@ -20,10 +20,10 @@ local pcall = pcall
 local tostring = tostring
 local Apple = ffi.new("uintptr_t[?]", 6)
 
--- פלאג פיתוח: מונע קריסת מחשב ובדיקות מבוקשות בזמן כתיבת הקוד
+-- Development verification flag to isolate dangerous low-level executions
 local IS_TESTING = true
 
--- ✅ תוקן! כל פונקציות ה-WinAPI והקרנל מאוחדות בבלוק אחד נקי ללא כפילויות וללא end מחרבן! [I1]
+-- Unified C-Declaration block for Windows API mapping (Redefinition Safe) [I1]
 ffi.cdef[[
     typedef void* HANDLE;
     typedef unsigned long DWORD;
@@ -58,37 +58,21 @@ ffi.cdef[[
     unsigned long WaitForSingleObject(void* hHandle, unsigned long dwMilliseconds);
     int FindNextChangeNotification(void* hChangeHandle);
 
-    HANDLE CreateFileA(
-        const char* lpFileName,
-        DWORD dwDesiredAccess,
-        DWORD dwShareMode,
-        void* lpSecurityAttributes,
-        DWORD dwCreationDisposition,
-        DWORD dwFlagsAndAttributes,
-        HANDLE hTemplateFile
-    );
-
-    BOOL DeviceIoControl(
-        HANDLE hDevice,
-        DWORD dwIoControlCode,
-        void* lpInBuffer,
-        DWORD nInBufferSize,
-        void* lpOutBuffer,
-        DWORD nOutBufferSize,
-        DWORD* lpBytesReturned,
-        void* lpOverlapped
-    );
+    void* VirtualAllocEx(HANDLE hProcess, void* lpAddress, size_t dwSize, DWORD flAllocationType, DWORD flProtect);
+    BOOL WriteProcessMemory(HANDLE hProcess, void* lpBaseAddress, const void* lpBuffer, unsigned __int64 nSize, unsigned __int64* lpNumberOfBytesWritten);
+    int VirtualProtectEx(HANDLE hProcess, void* lpAddress, size_t dwSize, DWORD flNewProtect, uintptr_t* lpflOldProtect);
+    HANDLE CreateRemoteThread(HANDLE hProcess, void* lpThreadAttributes, size_t dwStackSize, void* lpStartAddress, void* lpParameter, DWORD dwCreationFlags, DWORD* lpThreadId);
 ]]
 
--- טעינת רכיב המערכת הראשי של ווינדוס
+-- Load native Win32 kernel layer subsystem
 local kernel32 = ffi.load("kernel32")
 
--- מטריצת גלולות הרעל (Poison Pills): יצירת משתני דמה חומרתיים להקפאת סורקים חיצוניים [I1, I4]
+-- Poison Pills: Hardware-level structure tracking to freeze illegal inspection matrices [I1, I4]
 local POISON_COUNT = 5
 local poison_pills = ffi.new("int32_t[5]", {100, 20, 100, 20, 100})
 local original_pills = {100, 20, 100, 20, 100}
 
--- קבועים קשיחים במרחב החיצוני למניעת זליגות זיכרון בלולאות ה-JIT
+-- Immutable scope definitions preventing stack allocations inside optimized loops
 local TH32CS_SNAPPROCESS = 0x00000002
 local PROCESS_TERMINATE = 0x00000001
 local PROCESS_VM_READ = 0x00000010
@@ -96,32 +80,32 @@ local PROCESS_VM_READ = 0x00000010
 local pe = ffi.new("PROCESSENTRY32") 
 pe.dwSize = ffi.sizeof("PROCESSENTRY32")
 
--- הגדרת משתני זמן חומרתיים לביצוע ה-Warm-up ההתחלתי של המנוע
+-- Warm-up hardware clock configuration constants [I1]
 local last_time = ffi.new("int64_t[1]")
 local current_time = ffi.new("int64_t[1]")
 kernel32.QueryPerformanceCounter(last_time) 
 
--- נתוני המשחק המוגנים (The Target Value to Protect)
+-- Protected target workspace variables
 local Banana = {health = 100, speed = 20, strength = 10} 
 local PlayerData = {} 
 
--- הצהרה מוקדמת לצורך רקורסיית זנב נקייה ב-JIT
+-- Forward reference initialization ensuring JIT Trace-Compiler safety
 local scan_next_process
 
--- סורק תהליכים ללא תנאי (Branchless) - רץ בקו ישר O(1) בשבריר שנייה [I1, I4]
+-- Branchless process scanning vector running at linear runtime O(1) [I1, I4]
 scan_next_process = function(snapshot, current_success)
     local actions = {
         [true] = function()
             local pid = pe.th32ProcessID
             local process_name = ffi.string(pe.szExeFile)
             
-            -- הגנה 1: זיהוי התנהגותי (פתיחת תהליך לבדיקה) [I1]
+            -- Perimeter Validation 1: Behavioral process handle allocation
             local process_handle = kernel32.OpenProcess(PROCESS_VM_READ, 0, pid)
             local has_handle = (process_handle ~= nil)
             
             local behavior_check = {
                 [true] = function()
-                    -- הגנה 2: סריקת חתימות אקטיבית מול כלי פריצה מוכרים
+                    -- Perimeter Validation 2: Active verification against blacklisted structures
                     local target_hackers = {
                         ["cheatengine.exe"] = true,
                         ["Cheat Engine.exe"] = true,
@@ -136,7 +120,7 @@ scan_next_process = function(snapshot, current_success)
                         [true] = function()
                             print("💥 [ELIMINATED] Cheat signature/behavior detected! Wiping PID: " .. tostring(pid))
                             
-                            -- מטריצת השמדה חסינת תנאים [I1, I4]
+                            -- Linear intervention engine passing runtime conditions
                             local termination_matrix = {
                                 [true] = function() print("🎯 [MOCK DETECTED] TerminateProcess suppressed via IS_TESTING flag.") end,
                                 [false] = function()
@@ -160,36 +144,42 @@ scan_next_process = function(snapshot, current_success)
             setmetatable(behavior_check, { __metatable = "no enter for you my guy" })
             behavior_check[has_handle]()
 
-            -- מעבר ישיר בקו ישר לאלמנט הבא ברשימת התהליכים [I1]
+            -- Linear transition to next structural element in snapshot layout [I1]
             local next_success = kernel32.Process32Next(snapshot, pe)
             return scan_next_process(snapshot, next_success == 1) 
         end,
         
         [false] = function()
-            kernel32.CloseHandle(snapshot) -- סגירה מאובטחת של ה-Win32 Snapshot Handle
+            kernel32.CloseHandle(snapshot) -- Secure Win32 Snapshot Handle deallocation
             print("[PERIMETER SECURED] Behavior and signature scans completed with 100% success.")
         end
     }
     setmetatable(actions, { __metatable = "no enter for you my guy" }) 
     return actions[current_success]()
 end
+
 local Agent_Size = 512
 
+-- Dynamic Core Replication Routine executing via hardware-level primitives [I1, I4]
 local function local_deploy(value)
-    local result = ffi.C.OpenProcess(change, 0, value)
-    local virtual = ffi.C.VirtualAllocEx(result, nil, Agent_Size, 0x3000, 0x40) -- 0x40 = PAGE_EXECUTE_READWRITE
+    local result = kernel32.OpenProcess(0x1FFFFF, 0, value)
+    if result == nil then return end 
+    
+    -- Allocate secure virtual layout inside memory space
+    local virtual = kernel32.VirtualAllocEx(result, nil, Agent_Size, 0x3000, 0x40) 
     
     local Apple = ffi.new("uintptr_t[?]", 6)
     local take = ffi.new("uintptr_t[?]", 6)
-    
     local buffer = ffi.new("uintptr_t[?]", Agent_Size)
     
+    -- Clone native executable instruction array using strict casting
     ffi.copy(buffer, ffi.cast("void*", scan_next_process), Agent_Size)
     
-    ffi.C.WriteProcessMemory(result, virtual, buffer, Agent_Size, Apple)
-    ffi.C.VirtualProtectEx(result, virtual, Agent_Size, 0x20, take)
-    ffi.C.CreateRemoteThread(result, nil, 0, virtual, nil, 0, nil)
-    ffi.C.CloseHandle(result)
+    -- Inject binary memory space, change access descriptors and spawn dynamic validation thread [I1]
+    kernel32.WriteProcessMemory(result, virtual, buffer, Agent_Size, Apple)
+    kernel32.VirtualProtectEx(result, virtual, Agent_Size, 0x20, take)
+    kernel32.CreateRemoteThread(result, nil, 0, virtual, nil, 0, nil)
+    kernel32.CloseHandle(result)
     
     print("💉 [NEXUS REVIVE] Pristine Master Core binary successfully duplicated and injected into target process.")
 end
