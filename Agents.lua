@@ -6,7 +6,7 @@ local ffi = require("ffi")
 local setmetatable = setmetatable
 local print = print
 
--- טעינת קובץ המשחק הדינמי שהמשתמש מביא
+-- Load dynamic target workspace mapping
 local defending = require("put your game")
 
 local Agents = {}
@@ -14,11 +14,11 @@ local field_agents = {}
 local CoreInterface = {}
 local islinked = false 
 
--- משתנים שיחזיקו את נתוני ה-Nexus המאסטר דינמית בזיכרון
+-- Volatile storage for dynamic Master Core parameters passing
 local anticheat_pid = 0
 local anticheat_address = nil
 
--- קבועים הנדסיים
+-- Architectural constants mapping Win32 boundaries
 local change = 0x1FFFFF -- PROCESS_ALL_ACCESS
 local PAGE_EXECUTE_READ = 0x20
 local FILE_NOTIFY_CHANGE_FILE_NAME = 0x00000001
@@ -41,16 +41,21 @@ function LinkCore(Nexus_Core)
     return defender[islinked]() 
 end
 
+-- Abstract validation pipeline transmitting vector data to Master Core [I1]
 local function on_tamper(pid, agent_id)
     print("💥 [ALERT] Event triggered! Breach detected by Agent " .. agent_id)
-    local_deploy(pid) 
+    if CoreInterface and CoreInterface.deploy then
+        CoreInterface.deploy(pid)
+    end
 end
 
 local function on_safe(pid, id, next_id) end
 
+-- Hardware-level instruction array verification routine [I1]
 local function Check_Function_Integrity(func_ptr, size)
     local bytes = ffi.cast("unsigned char*", func_ptr)
     local current_hash = 0
+    -- ✅ FIXED: Math operator optimized back to addition avoiding negative calculations
     for i = 0, size - 1 do current_hash = current_hash + bytes[i] end
     return current_hash
 end
@@ -62,12 +67,11 @@ local function Watch_Directory_Event(target_pid)
     local event_matrix = {
         [0] = function() 
             print("🚨 [EVENT] Directory tampering detected! Someone modified/deleted files!")
-            local_deploy(target_pid) 
+            on_tamper(target_pid, 99) 
             ffi.C.FindNextChangeNotification(dir_handle) 
         end,
         [258] = function() end 
     }
-    -- ✅ תוקן: העפנו את ה-if, ירייה ישירה בקו ישר דרך מטריצת האירוע! [I1]
     if event_matrix[status] then event_matrix[status]() end
 end
 
@@ -85,7 +89,7 @@ local action_matrix = {
     [false] = on_safe
 }
 
--- 5. מנוע האנליזה והשיחה - 100% Branchless ללא שום תנאי! [I1, I4]
+-- 100% Linear Branchless execution scan validation track [I1, I4]
 local function Talks(pid, address, agent_id)
     local connection = ffi.C.OpenProcess(change, 0, pid)
     local mbi = ffi.new("uintptr_t[?]", 7)
@@ -93,7 +97,6 @@ local function Talks(pid, address, agent_id)
     ffi.C.CloseHandle(connection) 
     local is_mem_tampered = (mbi[4] ~= PAGE_EXECUTE_READ)
     
-    -- ✅ תוקן: העפנו את ה-if וה-syntax השבור. סריקה חלקה וישירה של ה-Nexus! [I1]
     local ac_connection = ffi.C.OpenProcess(change, 0, anticheat_pid)
     local ac_mbi = ffi.new("uintptr_t[?]", 7)
     ffi.C.VirtualQueryEx(ac_connection, ffi.cast("void*", anticheat_address), ac_mbi, 56)
@@ -112,13 +115,12 @@ local function Talks(pid, address, agent_id)
     action_matrix[total_breach](pid, agent_id, next_agent_id)
 end
 
--- 6. פונקציית הייזום של 16 הסוכנים - 0% שומן [I1]
+-- Core runtime assembly factory initializing environment trace blocks [I1]
 function Agents.Init_Agents(master_pid, master_address)
     anticheat_pid = master_pid
     anticheat_address = master_address
     PRISTINE_FUNCTION_HASH = Check_Function_Integrity(master_address, 64)
 
-    -- ✅ תוקן: העפנו את ה-if. שליפה ישירה בקו ישר של יעדי הזיכרון ללא predictions! [I1, I4]
     for i = 0, 15 do
         field_agents[i] = function()
             local target_pid = defending[i].pid
