@@ -210,6 +210,9 @@ local Banana = {health = 100, speed = 20, strength = 10}
 local PlayerData = {} 
 
 local function CPUFinder(CheatEngine)
+if CheatEngine == nil or CheatEngine == 0 then
+return false
+end
     local t_start = ffi.new("FILETIME[4]")
     local t_end = ffi.new("FILETIME[4]")
     local sys_t = ffi.new("FILETIME[1]") 
@@ -244,14 +247,14 @@ end
 end
 
 local function SearchOpenProcess(CheatEngine)  
-if CheatEngine ~= nil or CheatEngine ~= 0 then
+if CheatEngine == nil or CheatEngine == 0 then
 return false
 end
 local Info = ffi.new("HANDLE[1]")
 local MyCurrentProcess  = ffi.cast("HANDLE", -1)
 
 local Handle_Cheat = ffi.C.OpenProcess(0x1FFFFF, 0, CheatEngine)
-if Handle_Cheat ~= nil or Handle_Cheat ~= 0 then
+if Handle_Cheat == nil or Handle_Cheat == 0 then
   return false
   end
 local Duplicate_Handle = ffi.C.DuplicateHandle(
@@ -263,7 +266,7 @@ Info,
 0,
 0x00000002
 )
-if Duplicate_Handle ~= nil or Duplicate_Handle ~= 0 then
+if Duplicate_Handle == nil or Duplicate_Handle == 0 then
   return false
   end
   local TypeInfo = ffi.new("PUBLIC_OBJECT_TYPE_INFORMATION")
