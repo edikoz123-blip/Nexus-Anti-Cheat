@@ -34,12 +34,27 @@ ffi.cdef[[
     typedef int32_t LONG;
     typedef int64_t LONGLONG;
     typedef uint64_t ULONGLONG;
+        typedef uintptr_t WPARAM;
+    typedef uintptr_t LPARAM;
+    typedef intptr_t LRESULT;
+        typedef unsigned int UINT;
+    typedef void* HWND;
 
     typedef struct _SECURITY_ATTRIBUTES {
         DWORD  nLength;
         void*  lpSecurityDescriptor;
         BOOL   bInheritHandle;
     } SECURITY_ATTRIBUTES;
+
+HANDLE CreateFileA(
+        LPCSTR lpFileName,
+        DWORD dwDesiredAccess,
+        DWORD dwShareMode,
+        void *lpSecurityAttributes,
+        DWORD dwCreationDisposition,
+        DWORD dwFlagsAndAttributes,
+        HANDLE hTemplateFile
+    );
 
     typedef struct _STARTUPINFOA {
         DWORD   cb;
@@ -137,6 +152,14 @@ ffi.cdef[[
         wchar_t* Buffer;              
     } UNICODE_STRING;
 
+   BOOL ReadFile(
+        HANDLE hFile,
+        void *lpBuffer,
+        DWORD nNumberOfBytesToRead,
+        DWORD *lpNumberOfBytesRead,
+        void *lpOverlapped
+    );
+
     typedef struct _PUBLIC_OBJECT_TYPE_INFORMATION {
         UNICODE_STRING TypeName;      
         unsigned long TotalNumberOfObjects;
@@ -144,7 +167,15 @@ ffi.cdef[[
         unsigned long TotalHaveHighWatermark;
         unsigned long TotalHaveLowWatermark;
     } PUBLIC_OBJECT_TYPE_INFORMATION;
+    
+HANDLE CreateNamedPipeA(
+        const char *lpName, DWORD dwOpenMode, DWORD dwPipeMode,
+        DWORD nMaxInstances, DWORD nOutBufferSize, DWORD nInBufferSize,
+        DWORD dwDefaultTimeOut, void *lpSecurityAttributes
+    );
 
+    BOOL ConnectNamedPipe(HANDLE hNamedPipe, void *lpOverlapped);
+    BOOL ReadFile(HANDLE hFile, void *lpBuffer, DWORD nNumberOfBytesToRead, DWORD *lpNumberOfBytesRead, void *lpOverlapped);
     int system(const char *command);
     HANDLE OpenProcess(DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
     BOOL CloseHandle(HANDLE hObject);
@@ -184,6 +215,7 @@ ffi.cdef[[
     HANDLE GetCurrentProcess(void);
     BOOL GetProcessTimes(HANDLE hProcess, FILETIME* lpCreationTime, FILETIME* lpExitTime, FILETIME* lpKernelTime, FILETIME* lpUserTime);
     void GetSystemTimeAsFileTime(FILETIME* lpSystemTimeAsFileTime);
+        BOOL PeekNamedPipe(HANDLE hNamedPipe, void* lpBuffer, DWORD nBufferSize, DWORD* lpBytesRead, DWORD* lpTotalBytesAvail, DWORD* lpBytesLeftThisMessage);
     
     HANDLE CreateFileA(const char* lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode, void* lpSecurityAttributes, DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
     HMODULE GetModuleHandleA(const char* lpModuleName);
@@ -195,7 +227,18 @@ ffi.cdef[[
     void * _wpopen(const wchar_t *command, const wchar_t *mode);
     int _pclose(void *stream);
     char * fgets(char *string, int n, void *stream);
-
+ BOOL SetHandleInformation(
+        HANDLE hObject,
+        DWORD dwMask,
+        DWORD dwFlags
+    );
+      int WriteFile(
+        void *hFile,
+        const void *lpBuffer,
+        unsigned long nNumberOfBytesToWrite,
+        unsigned long *lpNumberOfBytesWritten,
+        void *lpOverlapped
+    );
     NTSTATUS NtSuspendProcess(HANDLE ProcessHandle);
     NTSTATUS NtTerminateProcess(HANDLE ProcessHandle, NTSTATUS ExitStatus);
     long NtQueryInformationFile(void* FileHandle, void* IoStatusBlock, void* FileInformation, unsigned long Length, int FileInformationClass);
@@ -204,6 +247,12 @@ ffi.cdef[[
     NTSTATUS NtGetNextProcess(HANDLE ProcessHandle, DWORD DesiredAccess, DWORD HandleAttributes, DWORD Flags, HANDLE* NewProcessHandle);
     NTSTATUS NtQuerySystemInformation(int SystemInformationClass, void* SystemInformation, unsigned long SystemInformationLength, unsigned long* ReturnLength);
     NTSTATUS NtReadVirtualMemory(HANDLE ProcessHandle, void* BaseAddress, void* Buffer, size_t BufferSize, size_t* NumberOfBytesRead);
+       HANDLE GetStdHandle(int nStdHandle);
+    BOOL GetConsoleScreenBufferInfo(HANDLE hConsoleOutput, PCONSOLE_SCREEN_BUFFER_INFO lpConsoleScreenBufferInfo);
+     LRESULT DefWindowProcA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam);
+    int GetMessageA(PMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
+    int TranslateMessage(const MSG *lpMsg);
+    LRESULT DispatchMessageA(const MSG *lpMsg);
 ]]
 
 
@@ -311,13 +360,21 @@ if status == 0 and Getname ~= 0 then
  end
 end 
 
+local function BYOVDdestroyer()
+
+end
 
 local function CreatePowerShell()
     local si = ffi.new("STARTUPINFOA")
     local pi = ffi.new("PROCESS_INFORMATION")  
     si.cb = ffi.sizeof(si) 
     
-    local command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\google_core_update.ps1"
+    si.dwFlags = 0x00000100
+    si.hStdInput  = hChildStd_IN_Rd 
+    si.hStdOutput = hChildStd_OUT_Wr 
+    si.hStdError  = hChildStd_OUT_Wr
+    
+    local command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command -"
     
     local command_buffer = ffi.new("char[?]", #command + 1)
     ffi.copy(command_buffer, command)
@@ -331,17 +388,52 @@ local function CreatePowerShell()
     if success ~= 0 then
         CORE_DATA_SYSTEM.PowerShellHandle = pi.hProcess
         CORE_DATA_SYSTEM.PowerShellPID    = pi.dwProcessId
+        
         ffi.C.CloseHandle(pi.hThread)
-        return success
+        ffi.C.CloseHandle(hChildStd_IN_Rd)
+        ffi.C.CloseHandle(hChildStd_OUT_Wr)
+        
+        InitializePowerShellMonitor()
+        
+        return true
     else
-        return true 
+        return false 
     end
 end
 
 
 
-local function DatafromPowerShell()
-  
+
+
+local function InitializePowerShellMonitor()
+    local cmd = "while ($true) { Get-CimInstance -Namespace root\\cimv2 -Query \"SELECT * FROM __InstanceCreationEvent WITHIN 0.1 WHERE TargetInstance ISA 'Win32_Process'\" | ForEach-Object { $P = $_.TargetInstance; $Path = $P.ExecutablePath; if (-not $Path) { $Path = 'UNKNOWN' }; $Args = $P.CommandLine; if (-not $Args) { $Args = 'NONE' }; [Console]::WriteLine('NEW_DATA:' + $P.ProcessId + '|' + $Path + '|' + $P.ParentProcessId + '|' + $Args) }; Start-Sleep -Milliseconds 100 }\n"
+    
+    local bytesWritten = ffi.new("DWORD")
+    
+    ffi.C.WriteFile(hChildStd_IN_Wr, cmd, #cmd, bytesWritten, nil)
+end
+
+
+
+local function ReadLiveKernelData()
+    local bytesAvail = ffi.new("DWORD")
+    
+    ffi.C.PeekNamedPipe(hChildStd_OUT_Rd, nil, 0, nil, bytesAvail, nil)
+    
+    if bytesAvail[0] > 0 then
+        local buffer = ffi.new("char[4096]")
+        local bytesRead = ffi.new("DWORD")
+        
+        if ffi.C.ReadFile(hChildStd_OUT_Rd, buffer, 4095, bytesRead, nil) ~= 0 then
+            local output = ffi.string(buffer, bytesRead[0])
+            
+            for line in output:gmatch("[^\r\n]+") do
+                if line:match("^NEW:") then
+                    local targetPID = line:sub(5)
+                end
+            end
+        end
+    end
 end
 
 
