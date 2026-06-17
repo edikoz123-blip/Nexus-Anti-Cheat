@@ -430,10 +430,11 @@ local function CreatePowerShell()
         CORE_DATA_SYSTEM.PowerShellHandle = pi.hProcess
         CORE_DATA_SYSTEM.PowerShellPID    = pi.dwProcessId
         
-        ffi.C.CloseHandle(pi.hThread)
-        ffi.C.CloseHandle(hChildStd_IN_Rd)
-        ffi.C.CloseHandle(hChildStd_OUT_Wr)
-        
+
+ffi.C.SetHandleInformation(hChildStd_IN_Wr, 0x00000002, 0x00000002)
+ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000002, 0x00000002)
+ffi.C.SetHandleInformation(hChildStd_IN_Wr, 0x00000001, 0)
+ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000001, 0)
         InitializePowerShellMonitor()
         return true
     else
