@@ -55,6 +55,34 @@ HANDLE CreateFileA(
         DWORD dwFlagsAndAttributes,
         HANDLE hTemplateFile
     );
+    
+    typedef struct {
+        ULONG Length;
+        HANDLE RootDirectory;
+        void* ObjectName; -- כאן יוזרק נתיב הדרייבר (UNICODE_STRING)
+        ULONG Attributes;
+        void* SecurityDescriptor;
+        void* SecurityQualityOfService;
+    } OBJECT_ATTRIBUTES;
+    
+    typedef struct {
+        long Status;
+        void* Information;
+    } IO_STATUS_BLOCK;
+    
+    NTSTATUS NtCreateFile(
+        HANDLE* FileHandle,
+        ULONG DesiredAccess,
+        OBJECT_ATTRIBUTES* ObjectAttributes,
+        IO_STATUS_BLOCK* IoStatusBlock,
+        void* AllocationSize,
+        ULONG FileAttributes,
+        ULONG ShareAccess,
+        ULONG CreateDisposition,
+        ULONG CreateOptions,
+        void* EaBuffer,
+        ULONG EaLength
+    );
 
     typedef struct _STARTUPINFOA {
         DWORD   cb;
@@ -173,6 +201,29 @@ HANDLE CreateNamedPipeA(
         DWORD nMaxInstances, DWORD nOutBufferSize, DWORD nInBufferSize,
         DWORD dwDefaultTimeOut, void *lpSecurityAttributes
     );
+       typedef struct {
+        unsigned long cbStruct;
+        const wchar_t* pcwszFilePath;
+        void* hFile;
+        void* pgKnownSubject;
+    } WINTRUST_FILE_INFO;
+
+    typedef struct {
+        unsigned long cbStruct;
+        void* pPolicyCallbackData;
+        void* pSIPClientData;
+        unsigned long dwUIChoice;
+        unsigned long fdwRevocationChecks;
+        unsigned long dwUnionChoice;
+        WINTRUST_FILE_INFO* pFile;
+        unsigned long dwStateAction;
+        void* hWVTStateData;
+        wchar_t* pwszURLReference;
+        unsigned long dwProvFlags;
+        unsigned long dwUIContext;
+    } WINTRUST_DATA;
+
+    long WinVerifyTrust(void* hwnd, void* pgActionID, WINTRUST_DATA* pWVTData);
 
     BOOL ConnectNamedPipe(HANDLE hNamedPipe, void *lpOverlapped);
     BOOL ReadFile(HANDLE hFile, void *lpBuffer, DWORD nNumberOfBytesToRead, DWORD *lpNumberOfBytesRead, void *lpOverlapped);
@@ -265,14 +316,6 @@ local original_pills = {100, 20, 100, 20, 100}
 local pe = ffi.new("PROCESSENTRY32") 
 pe.dwSize = ffi.sizeof("PROCESSENTRY32")
 
-local function FreezeCheat(CheatEngine)
-  if not CheatEngine or CheatEngine == 0 then
-    return false
-  end
-  
-  local Freezer = ntdll.NtSuspendProcess(CheatEngine)  
-  return Freezer == 0 
-end
 
 local function DeleteCheats(theFiletoDelete)
     local hProcess = getProcessHandleByName(theFiletoDelete)
@@ -360,9 +403,12 @@ if status == 0 and Getname ~= 0 then
  end
 end 
 
-local function BYOVDdestroyer()
+local function BYOVDdestroyer(Driver)
 
 end
+
+
+local CURRENT_TARGET_PATH = ""
 
 local function CreatePowerShell()
     local si = ffi.new("STARTUPINFOA")
@@ -375,15 +421,10 @@ local function CreatePowerShell()
     si.hStdError  = hChildStd_OUT_Wr
     
     local command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command -"
-    
     local command_buffer = ffi.new("char[?]", #command + 1)
     ffi.copy(command_buffer, command)
     
-    local success = ffi.C.CreateProcessA(
-        nil,
-        command_buffer,
-        nil, nil, 1, 0, nil, nil, si, pi
-    )
+    local success = ffi.C.CreateProcessA(nil, command_buffer, nil, nil, 1, 0, nil, nil, si, pi)
     
     if success ~= 0 then
         CORE_DATA_SYSTEM.PowerShellHandle = pi.hProcess
@@ -394,42 +435,64 @@ local function CreatePowerShell()
         ffi.C.CloseHandle(hChildStd_OUT_Wr)
         
         InitializePowerShellMonitor()
-        
         return true
     else
         return false 
     end
 end
 
-
-
-
-
 local function InitializePowerShellMonitor()
-    local cmd = "while ($true) { Get-CimInstance -Namespace root\\cimv2 -Query \"SELECT * FROM __InstanceCreationEvent WITHIN 0.1 WHERE TargetInstance ISA 'Win32_Process'\" | ForEach-Object { $P = $_.TargetInstance; $Path = $P.ExecutablePath; if (-not $Path) { $Path = 'UNKNOWN' }; $Args = $P.CommandLine; if (-not $Args) { $Args = 'NONE' }; [Console]::WriteLine('NEW_DATA:' + $P.ProcessId + '|' + $Path + '|' + $P.ParentProcessId + '|' + $Args) }; Start-Sleep -Milliseconds 100 }\n"
+    local cmd = [[
+$Watcher = New-Object System.IO.FileSystemWatcher;
+$Watcher.Path = "C:\Users\Public\Downloads";
+$Watcher.Filter = "*.sys";
+$Watcher.IncludeSubdirectories = $true;
+$Watcher.EnableRaisingEvents = $true;
+
+$Stdout = [System.Console]::OpenStandardOutput();
+
+$Action = {
+    $PathBytes = [System.Text.Encoding]::UTF8.GetBytes("NEW:" + $Event.SourceEventArgs.FullPath + "`n");
+    $Stdout.Write($PathBytes, 0, $PathBytes.Length);
+    $Stdout.Flush();
+};
+
+Register-ObjectEvent -InputObject $Watcher -EventName "Created" -Action $Action | Out-Null;
+
+while ($true) { Start-Sleep -Seconds 3600 }
+]]
     
     local bytesWritten = ffi.new("DWORD")
-    
     ffi.C.WriteFile(hChildStd_IN_Wr, cmd, #cmd, bytesWritten, nil)
 end
 
-
-
 local function ReadLiveKernelData()
-    local bytesAvail = ffi.new("DWORD")
-    
+    local bytesAvail = ffi.new("DWORD"[1])
     ffi.C.PeekNamedPipe(hChildStd_OUT_Rd, nil, 0, nil, bytesAvail, nil)
     
-    if bytesAvail[0] > 0 then
+    if bytesAvail > 0 then
         local buffer = ffi.new("char[4096]")
-        local bytesRead = ffi.new("DWORD")
+        local bytesRead = ffi.new("DWORD[1]")
         
         if ffi.C.ReadFile(hChildStd_OUT_Rd, buffer, 4095, bytesRead, nil) ~= 0 then
             local output = ffi.string(buffer, bytesRead[0])
             
             for line in output:gmatch("[^\r\n]+") do
+              
                 if line:match("^NEW:") then
-                    local targetPID = line:sub(5)
+                    
+                    local DataPowershell = line:sub(5)
+                    CURRENT_TARGET_PATH = DataPowershell
+                    
+                    local fileHandle = ffi.new("HANDLE[1]")
+                    local ioStatus = ffi.new("IO_STATUS_BLOCK[1]")
+                    local objAttrs = ffi.new("OBJECT_ATTRIBUTES[1]")
+                    
+                    local FreezeDriver = ffi.C.NtCreateFile(fileHandle, 0x80000000, objAttrs, ioStatus, nil, 0, 0, 1, 0x00000020, nil, 0)
+                    
+                    CURRENT_TARGET_PATH = ""
+                    BYOVDdestroyer(DataPowershell)
+                    return FreezeDriver == 0, DataPowershell
                 end
             end
         end
