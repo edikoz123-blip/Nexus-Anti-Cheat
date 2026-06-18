@@ -1,7 +1,7 @@
 local jit = require("jit")
 jit.on()
-jit.opt.start(3)
-
+jit.opt.start(3, "hotloop=1", "hotexit=1", "maxrecord=4000", "maxmcode=2048") 
+collectgarbage("stop")
 local ffi = require("ffi") 
 local bit = require("bit") 
 local current_path = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or "./"
@@ -18,7 +18,6 @@ local Apple = ffi.new("uintptr_t[?]", 6)
 
 local IS_TESTING = true
 
-local ffi = require("ffi")
 
 ffi.cdef[[
     typedef void* HANDLE;
@@ -222,7 +221,16 @@ HANDLE CreateNamedPipeA(
         unsigned long dwProvFlags;
         unsigned long dwUIContext;
     } WINTRUST_DATA;
-
+  
+   int MultiByteToWideChar(
+        unsigned int CodePage, 
+        unsigned long dwFlags, 
+        const char* lpMultiByteStr, 
+        int cbMultiByte, 
+        wchar_t* lpWideCharStr, 
+        int cchWideChar
+    );
+    
     long WinVerifyTrust(void* hwnd, void* pgActionID, WINTRUST_DATA* pWVTData);
 
     BOOL ConnectNamedPipe(HANDLE hNamedPipe, void *lpOverlapped);
@@ -250,6 +258,7 @@ HANDLE CreateNamedPipeA(
     BOOL QueryPerformanceFrequency(LONGLONG* lpFrequency);
     unsigned long WaitForSingleObject(HANDLE hHandle, unsigned long dwMilliseconds);
     void Sleep(unsigned long dwMilliseconds);
+    int DeleteFileA(const char* lpFileName);
 
     int SetFileAttributesA(const char* lpFileName, unsigned long dwFileAttributes);
     HANDLE FindFirstChangeNotificationA(const char* lpPathName, BOOL bWatchSubtree, DWORD dwNotifyFilter);
@@ -403,9 +412,6 @@ if status == 0 and Getname ~= 0 then
  end
 end 
 
-local function BYOVDdestroyer(Driver)
-
-end
 
 
 local CURRENT_TARGET_PATH = ""
@@ -416,9 +422,14 @@ local function CreatePowerShell()
     si.cb = ffi.sizeof(si) 
     
     si.dwFlags = 0x00000100
-    si.hStdInput  = hChildStd_IN_Rd 
-    si.hStdOutput = hChildStd_OUT_Wr 
+    si.hStdInput  = hChildStd_IN_Rd   
+    si.hStdOutput = hChildStd_OUT_Wr  
     si.hStdError  = hChildStd_OUT_Wr
+    
+    ffi.C.SetHandleInformation(hChildStd_IN_Wr, 0x00000002, 0x00000002)
+    ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000002, 0x00000002)
+    ffi.C.SetHandleInformation(hChildStd_IN_Wr, 0x00000001, 0)
+    ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000001, 0) 
     
     local command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command -"
     local command_buffer = ffi.new("char[?]", #command + 1)
@@ -430,11 +441,10 @@ local function CreatePowerShell()
         CORE_DATA_SYSTEM.PowerShellHandle = pi.hProcess
         CORE_DATA_SYSTEM.PowerShellPID    = pi.dwProcessId
         
-
-ffi.C.SetHandleInformation(hChildStd_IN_Wr, 0x00000002, 0x00000002)
-ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000002, 0x00000002)
-ffi.C.SetHandleInformation(hChildStd_IN_Wr, 0x00000001, 0)
-ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000001, 0)
+        ffi.C.CloseHandle(pi.hThread)
+        ffi.C.CloseHandle(hChildStd_IN_Rd)
+        ffi.C.CloseHandle(hChildStd_OUT_Wr)
+        
         InitializePowerShellMonitor()
         return true
     else
@@ -442,10 +452,13 @@ ffi.C.SetHandleInformation(hChildStd_OUT_Rd, 0x00000001, 0)
     end
 end
 
+
+
+
 local function InitializePowerShellMonitor()
-    local cmd = [[
+   local cmd = [[
 $Watcher = New-Object System.IO.FileSystemWatcher;
-$Watcher.Path = "C:\Users\Public\Downloads";
+$Watcher.Path = "C:\Users";
 $Watcher.Filter = "*.sys";
 $Watcher.IncludeSubdirectories = $true;
 $Watcher.EnableRaisingEvents = $true;
@@ -462,43 +475,115 @@ Register-ObjectEvent -InputObject $Watcher -EventName "Created" -Action $Action 
 
 while ($true) { Start-Sleep -Seconds 3600 }
 ]]
-    
-    local bytesWritten = ffi.new("DWORD")
+
+    collectgarbage("stop")
+    local bytesWritten = ffi.new("unsigned long[1]") 
     ffi.C.WriteFile(hChildStd_IN_Wr, cmd, #cmd, bytesWritten, nil)
+    ReadLiveKernelData()
+    return bytesWritten
 end
 
-local function ReadLiveKernelData()
-    local bytesAvail = ffi.new("DWORD"[1])
-    ffi.C.PeekNamedPipe(hChildStd_OUT_Rd, nil, 0, nil, bytesAvail, nil)
+
+local staticFileInfo = ffi.new("WINTRUST_FILE_INFO")
+local staticTrustData = ffi.new("WINTRUST_DATA")
+
+staticFileInfo.cbStruct = ffi.sizeof("WINTRUST_FILE_INFO")
+staticFileInfo.hFile = nil
+staticFileInfo.pgKnownSubject = nil
+
+staticTrustData.cbStruct = ffi.sizeof("WINTRUST_DATA")
+staticTrustData.dwUIChoice = 2      
+staticTrustData.dwUnionChoice = 1    
+staticTrustData.pFile = staticFileInfo 
+staticTrustData.dwStateAction = 1  
+
+local SENSOR_GUID = ffi.new("GUID", {{0x00aac56b, 0xcd44, 0x11d0, {0x8c, 0x4f, 0x00, 0xc0, 0x4f, 0xc2, 0x95, 0xee}}})
+
+
+
+local function BYOVDdestroyer(Driver)
+    local Storage = ffi.new("wchar_t[?]", #Driver + 1)
     
-    if bytesAvail > 0 then
-        local buffer = ffi.new("char[4096]")
-        local bytesRead = ffi.new("DWORD[1]")
+    ffi.C.MultiByteToWideChar(65001, 0, Driver, #Driver, Storage, #Driver)
+    Storage[#Driver] = 0 -- סגירת המחרוזת של C עם אפס (Null-terminator)
+  
+    staticFileInfo.pcwszFilePath = Storage
+
+    local Verifing = ffi.C.WinVerifyTrust(nil, SENSOR_GUID, staticTrustData)
+    if Verifing == 0 then
+        ffi.C.DeleteFileA(Driver) 
+    end
+end
+
+
+
+
+local function ReadLiveKernelData()
+    local buffer = ffi.new("char[4096]")
+    local bytesRead = ffi.new("unsigned long[1]") 
+
+    local readSuccess = ffi.C.ReadFile(hChildStd_OUT_Rd, buffer, 4095, bytesRead, nil)
+    
+    if readSuccess ~= 0 and bytesRead[0] > 0 then
         
-        if ffi.C.ReadFile(hChildStd_OUT_Rd, buffer, 4095, bytesRead, nil) ~= 0 then
-            local output = ffi.string(buffer, bytesRead[0])
-            
-            for line in output:gmatch("[^\r\n]+") do
-              
-                if line:match("^NEW:") then
-                    
-                    local DataPowershell = line:sub(5)
-                    CURRENT_TARGET_PATH = DataPowershell
-                    
-                    local fileHandle = ffi.new("HANDLE[1]")
-                    local ioStatus = ffi.new("IO_STATUS_BLOCK[1]")
-                    local objAttrs = ffi.new("OBJECT_ATTRIBUTES[1]")
-                    
-                    local FreezeDriver = ffi.C.NtCreateFile(fileHandle, 0x80000000, objAttrs, ioStatus, nil, 0, 0, 1, 0x00000020, nil, 0)
-                    
-                    CURRENT_TARGET_PATH = ""
-                    BYOVDdestroyer(DataPowershell)
-                    return FreezeDriver == 0, DataPowershell
+        collectgarbage("stop") 
+        
+        local output = ffi.string(buffer, bytesRead[0])
+        
+        for line in output:gmatch("[^\r\n]+") do
+            if line:match("^NEW:") then
+                
+                local DataPowershell = line:sub(5)
+                
+                CURRENT_TARGET_PATH = DataPowershell
+                
+                local fileHandle = ffi.new("void*[1]") 
+                local ioStatus   = ffi.new("IO_STATUS_BLOCK[1]")
+                local objAttrs   = ffi.new("OBJECT_ATTRIBUTES[1]")
+                local uniStr     = ffi.new("UNICODE_STRING[1]")
+                
+                local wideNtPath = ConvertToNtPath(DataPowershell)
+                ffi.C.RtlInitUnicodeString(uniStr[0], wideNtPath)
+                
+                objAttrs[0].Length = ffi.sizeof("OBJECT_ATTRIBUTES")
+                objAttrs[0].RootDirectory = nil
+                objAttrs[0].ObjectName = uniStr 
+                objAttrs[0].Attributes = 0x00000040 
+                objAttrs[0].SecurityDescriptor = nil
+                objAttrs[0].SecurityQualityOfService = nil
+                
+                local status = ffi.C.NtCreateFile(
+                    fileHandle,      
+                    0x80000000,      
+                    objAttrs,        
+                    ioStatus,       
+                    nil, 0, 
+                    0x00000000,       
+                    0x00000001,       
+                    0, nil, 0
+                )
+                if status == 0 then 
+                BYOVDdestroyer(DataPowershell)
+                CURRENT_TARGET_PATH = ""
+                wideNtPath = nil
+                fileHandle = nil
                 end
             end
         end
+        collectgarbage("restart") 
+        return true
+    end
+    
+    return false
+end
+local isSensorActive = CreatePowerShell()
+
+if isSensorActive then
+    while true do
+        ReadLiveKernelData()
     end
 end
+
 
 
 
@@ -567,3 +652,5 @@ local function local_deploy(value)
     print("[NEXUS REVIVE] Pristine Master Core binary successfully duplicated and injected into target process.")
 end
 execute_instant_snapshot_check(ffi.C.wait_for_next_process_event())
+
+
